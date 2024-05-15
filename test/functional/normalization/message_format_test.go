@@ -5,6 +5,7 @@ import (
 	"github.com/openshift/cluster-logging-operator/internal/runtime"
 	"github.com/openshift/cluster-logging-operator/test/framework/functional"
 	testfw "github.com/openshift/cluster-logging-operator/test/functional"
+	testruntime "github.com/openshift/cluster-logging-operator/test/runtime"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -22,7 +23,7 @@ var _ = Describe("[Functional][LogForwarding][Normalization] tests for message f
 
 	BeforeEach(func() {
 		framework = functional.NewCollectorFunctionalFrameworkUsingCollector(testfw.LogCollectionType)
-		functional.NewClusterLogForwarderBuilder(framework.Forwarder).
+		testruntime.NewClusterLogForwarderBuilder(framework.Forwarder).
 			FromInput(logging.InputNameApplication).
 			ToElasticSearchOutput().
 			FromInput(logging.InputNameAudit).
@@ -79,7 +80,7 @@ var _ = Describe("[Functional][LogForwarding][Normalization] tests for message f
 		outputLogTemplate.Message = fmt.Sprintf("regex:^%s.*$", message)
 		outputLogTemplate.Level = "*"
 
-		// Write log line as input to fluentd
+		// Write log line as input
 		applicationLogLine := functional.NewCRIOLogMessage(timestamp, message, false)
 		Expect(framework.WriteMessagesToApplicationLog(applicationLogLine, 10)).To(BeNil())
 
@@ -107,7 +108,7 @@ var _ = Describe("[Functional][LogForwarding][Normalization] tests for message f
 		outputLogTemplate.Message = fmt.Sprintf("regex:^%s.*$", message)
 		outputLogTemplate.Level = "*"
 
-		// Write log line as input to fluentd
+		// Write log line as input
 		applicationLogLine := fmt.Sprintf("%s stdout F %s $n", timestamp, message)
 		Expect(framework.WriteMessagesToApplicationLog(applicationLogLine, 1)).To(BeNil())
 

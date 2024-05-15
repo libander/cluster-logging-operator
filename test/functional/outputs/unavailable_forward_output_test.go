@@ -6,13 +6,14 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/openshift/cluster-logging-operator/internal/runtime"
 	"github.com/openshift/cluster-logging-operator/test/framework/functional"
+	testruntime "github.com/openshift/cluster-logging-operator/test/runtime"
 	"time"
 
 	logging "github.com/openshift/cluster-logging-operator/api/logging/v1"
 	"github.com/openshift/cluster-logging-operator/test/helpers/oc"
 )
 
-var _ = Describe("[Functional][Outputs][Unavailable] FluentdForward Output", func() {
+var _ = Describe("[Functional][Outputs][Unavailable] Output", func() {
 
 	var (
 		framework *functional.CollectorFunctionalFramework
@@ -20,9 +21,9 @@ var _ = Describe("[Functional][Outputs][Unavailable] FluentdForward Output", fun
 
 	BeforeEach(func() {
 		framework = functional.NewCollectorFunctionalFramework()
-		functional.NewClusterLogForwarderBuilder(framework.Forwarder).
+		testruntime.NewClusterLogForwarderBuilder(framework.Forwarder).
 			FromInput(logging.InputNameApplication).
-			ToFluentForwardOutput()
+			ToHttpOutput()
 	})
 	AfterEach(func() {
 		framework.Cleanup()
@@ -34,7 +35,7 @@ var _ = Describe("[Functional][Outputs][Unavailable] FluentdForward Output", fun
 				return nil
 			}
 			Expect(framework.DeployWithVisitor(skipAddingOutput)).To(BeNil())
-			//allow fluent process to load config
+			//allow process to load config
 			time.Sleep(8 * time.Second)
 			Expect(oc.Literal().
 				From(fmt.Sprintf("oc -n %s get pod %s -o jsonpath={.status.containerStatuses[0].restartCount}", framework.Namespace, framework.Name)).

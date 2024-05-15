@@ -3,6 +3,7 @@ package normalization
 import (
 	"encoding/json"
 	"fmt"
+	testruntime "github.com/openshift/cluster-logging-operator/test/runtime"
 	"strings"
 
 	log "github.com/ViaQ/logerr/v2/log/static"
@@ -58,7 +59,7 @@ const (
 var _ = Describe("[Functional][Normalization] Json log parsing", func() {
 	var (
 		framework       *functional.CollectorFunctionalFramework
-		clfb            *functional.ClusterLogForwarderBuilder
+		clfb            *testruntime.ClusterLogForwarderBuilder
 		expected        map[string]interface{}
 		empty           map[string]interface{}
 		expectedMessage string
@@ -74,7 +75,7 @@ var _ = Describe("[Functional][Normalization] Json log parsing", func() {
 	BeforeEach(func() {
 		empty = map[string]interface{}{}
 		framework = functional.NewCollectorFunctionalFrameworkUsingCollector(testfw.LogCollectionType)
-		clfb = functional.NewClusterLogForwarderBuilder(framework.Forwarder).
+		clfb = testruntime.NewClusterLogForwarderBuilder(framework.Forwarder).
 			FromInput(logging.InputNameApplication).
 			ToOutputWithVisitor(func(output *logging.OutputSpec) {
 				output.Elasticsearch.StructuredTypeName = "foo"
@@ -97,16 +98,6 @@ var _ = Describe("[Functional][Normalization] Json log parsing", func() {
 			err = types.StrictlyParseLogsFromSlice(raw, &logs)
 			Expect(err).To(BeNil(), "Expected no errors parsing the logs")
 			return logs, err
-		}
-
-		if testfw.LogCollectionType == logging.LogCollectionTypeFluentd {
-			framework = functional.NewCollectorFunctionalFrameworkUsingCollector(logging.LogCollectionTypeFluentd)
-			clfb = functional.NewClusterLogForwarderBuilder(framework.Forwarder).
-				FromInput(logging.InputNameApplication).
-				ToFluentForwardOutput()
-			readLogs = func() ([]types.ApplicationLog, error) {
-				return framework.ReadApplicationLogsFrom(logging.OutputTypeFluentdForward)
-			}
 		}
 
 		clfb.Forwarder.Spec.Pipelines[0].Parse = "json"
@@ -191,7 +182,7 @@ var _ = Describe("[Functional][Normalization] Json log parsing", func() {
 
 	It("should verify LOG-2105 parses json message into structured field and writes to Elasticsearch", func() {
 		framework = functional.NewCollectorFunctionalFrameworkUsingCollector(testfw.LogCollectionType)
-		clfb = functional.NewClusterLogForwarderBuilder(framework.Forwarder).
+		clfb = testruntime.NewClusterLogForwarderBuilder(framework.Forwarder).
 			FromInput(logging.InputNameApplication).
 			ToElasticSearchOutput()
 
@@ -238,7 +229,7 @@ var _ = Describe("[Functional][Normalization] Json log parsing", func() {
 		invalidJson := `{"key":"v}`
 		timestamp := "2020-11-04T18:13:59.061892+00:00"
 
-		// Write log line as input to fluentd
+		// Write log line as input
 		expectedMessage := invalidJson
 		applicationLogLine := fmt.Sprintf("%s stdout F %s", timestamp, expectedMessage)
 		Expect(framework.WriteMessagesToApplicationLog(applicationLogLine, 1)).To(BeNil())

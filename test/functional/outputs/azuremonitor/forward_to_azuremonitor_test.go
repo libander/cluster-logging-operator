@@ -1,9 +1,8 @@
-// go:build !fluentd
-
 package azuremonitor
 
 import (
 	"fmt"
+	testruntime "github.com/openshift/cluster-logging-operator/test/runtime"
 	"strings"
 	"time"
 
@@ -39,7 +38,7 @@ var _ = Describe("Forwarding to Azure Monitor Log ", func() {
 		)
 		framework.Secrets = append(framework.Secrets, secret)
 
-		functional.NewClusterLogForwarderBuilder(framework.Forwarder).
+		testruntime.NewClusterLogForwarderBuilder(framework.Forwarder).
 			FromInputWithVisitor("custom-app",
 				func(spec *logging.InputSpec) {
 					spec.Application = &logging.Application{}
@@ -61,6 +60,7 @@ var _ = Describe("Forwarding to Azure Monitor Log ", func() {
 		nanoTime, _ := time.Parse(time.RFC3339Nano, timestamp)
 		message := "This is my new test message"
 		var appLogTemplate = functional.NewApplicationLogTemplate()
+		appLogTemplate.LogSource = logging.InfrastructureSourceContainer
 		appLogTemplate.Timestamp = nanoTime
 		appLogTemplate.Message = message
 		appLogTemplate.Level = "default"

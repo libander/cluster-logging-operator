@@ -9,7 +9,6 @@ import (
 	. "github.com/onsi/gomega"
 	logging "github.com/openshift/cluster-logging-operator/api/logging/v1"
 	framework "github.com/openshift/cluster-logging-operator/test/framework/e2e"
-	"github.com/openshift/cluster-logging-operator/test/framework/functional"
 	"github.com/openshift/cluster-logging-operator/test/helpers"
 	testruntime "github.com/openshift/cluster-logging-operator/test/runtime"
 )
@@ -34,6 +33,8 @@ var _ = Describe("[InputSelection]", func() {
 		logGeneratorNameFn = func(name string) string {
 			return "log-generator"
 		}
+
+		valueFrontendNS string
 	)
 
 	AfterEach(func() {
@@ -52,9 +53,13 @@ var _ = Describe("[InputSelection]", func() {
 				return component
 			}
 		}
-
+		valueFrontendNS = e2e.CreateTestNamespace()
+		// HACK
+		if input.Application != nil && len(input.Application.Namespaces) == 1 && input.Application.Namespaces[0] == "" {
+			input.Application.Namespaces[0] = valueFrontendNS
+		}
 		for componentName, namespace := range map[string]string{
-			valueFrontend: e2e.CreateTestNamespace(),
+			valueFrontend: valueFrontendNS,
 			valueBackend:  e2e.CreateTestNamespace(),
 			valueMiddle:   e2e.CreateTestNamespaceWithPrefix("openshift-test")} {
 			options := framework.NewDefaultLogGeneratorOptions()
@@ -76,7 +81,7 @@ var _ = Describe("[InputSelection]", func() {
 			Create()
 		Expect(err).To(BeNil())
 		forwarder.Spec.ServiceAccountName = sa.Name
-		functional.NewClusterLogForwarderBuilder(forwarder).
+		testruntime.NewClusterLogForwarderBuilder(forwarder).
 			FromInputWithVisitor("myinput", func(spec *logging.InputSpec) {
 				spec.Application = input.Application
 				spec.Infrastructure = input.Infrastructure
@@ -182,6 +187,17 @@ var _ = Describe("[InputSelection]", func() {
 				namespaces := receiver.ListNamespaces()
 				Expect(namespaces).ToNot(BeEmpty(), "Exp. to collect some logs")
 				Expect(namespaces).To(HaveEach(MatchRegexp("^clo-test.*$")))
+			}),
+		Entry("application inputs should only collect from explicit namespaces",
+			logging.InputSpec{
+				Application: &logging.Application{
+					Namespaces: []string{valueFrontendNS},
+				}},
+			logGeneratorNameFn,
+			func() {
+				namespaces := receiver.ListNamespaces()
+				Expect(namespaces).ToNot(BeEmpty(), "Exp. to collect some logs")
+				Expect(namespaces).To(HaveEach(Equal(valueFrontendNS)))
 			}),
 		Entry("application inputs should only collect from included namespaces with wildcards",
 			logging.InputSpec{

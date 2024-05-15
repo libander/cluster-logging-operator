@@ -1,0 +1,31 @@
+[sources.input_myreceiver]
+type = "http_server"
+address = "[::]:12345"
+decoding.codec = "json"
+
+[sources.input_myreceiver.tls]
+enabled = true
+key_file = "/etc/collector/receiver/collector-myreceiver/tls.key"
+crt_file = "/etc/collector/receiver/collector-myreceiver/tls.crt"
+
+[transforms.input_myreceiver_split]
+type = "remap"
+inputs = ["input_myreceiver"]
+source = '''
+  if exists(.items) && is_array(.items) {. = unnest!(.items)} else {.}
+'''
+
+[transforms.input_myreceiver_items]
+type = "remap"
+inputs = ["input_myreceiver_split"]
+source = '''
+  if exists(.items) {. = .items} else {.}
+'''
+
+[transforms.input_myreceiver_meta]
+type = "remap"
+inputs = ["input_myreceiver_items"]
+source = '''
+  .log_source = "kubeAPI"
+  .log_type = "audit"
+'''

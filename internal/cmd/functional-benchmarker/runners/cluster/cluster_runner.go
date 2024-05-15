@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/openshift/cluster-logging-operator/internal/utils"
+	testruntime "github.com/openshift/cluster-logging-operator/test/runtime"
 	"os"
 	"path"
 	"strings"
@@ -59,10 +60,10 @@ func (r *ClusterRunner) Deploy() {
 			testclient.Close()
 		}
 	}
-	r.framework = functional.NewCollectorFunctionalFrameworkUsing(&testclient.Test, cleanup, r.Verbosity, logging.LogCollectionType(r.CollectorImpl))
+	r.framework = functional.NewCollectorFunctionalFrameworkUsing(&testclient.Test, cleanup, r.Verbosity, logging.LogCollectionTypeVector)
 	r.framework.Conf = r.CollectorConfig
 
-	functional.NewClusterLogForwarderBuilder(r.framework.Forwarder).
+	testruntime.NewClusterLogForwarderBuilder(r.framework.Forwarder).
 		FromInputWithVisitor("benchmark", func(spec *logging.InputSpec) {
 			spec.Application = &logging.Application{
 				Namespaces: []string{r.Namespace()},
@@ -72,21 +73,13 @@ func (r *ClusterRunner) Deploy() {
 
 	//modify config to only collect loader containers
 	r.framework.VisitConfig = func(conf string) string {
-		switch logging.LogCollectionType(r.CollectorImpl) {
-		case logging.LogCollectionTypeFluentd:
-			pattern := fmt.Sprintf("/var/log/pods/%s_*/loader-*/*.log", r.framework.Namespace)
-			conf = strings.Replace(conf, "/var/log/pods/*/*/*.log", pattern, 1)
-			conf = strings.Replace(conf, "/var/log/pods/**/*.log", pattern, 1)
-		case logging.LogCollectionTypeVector:
-			pattern := `exclude_paths_glob_patterns = ["/var/log/pods/openshift-logging_collector-*/*/*.log"`
-			conf = strings.Replace(conf, `exclude_paths_glob_patterns = ["/var/log/pods/*/collector/*.log"`, pattern, 1)
-			n := strings.Index(conf, "[sinks.prometheus_output]")
-			if n == -1 {
-				return conf
-			}
-			return conf[0:n]
+		pattern := `exclude_paths_glob_patterns = ["/var/log/pods/openshift-logging_collector-*/*/*.log"`
+		conf = strings.Replace(conf, `exclude_paths_glob_patterns = ["/var/log/pods/*/collector/*.log"`, pattern, 1)
+		n := strings.Index(conf, "[sinks.prometheus_output]")
+		if n == -1 {
+			return conf
 		}
-		return conf
+		return conf[0:n]
 	}
 
 	err := r.framework.DeployWithVisitors([]runtime.PodBuilderVisitor{

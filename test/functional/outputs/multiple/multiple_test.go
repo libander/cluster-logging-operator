@@ -1,6 +1,7 @@
 package multiple
 
 import (
+	testruntime "github.com/openshift/cluster-logging-operator/test/runtime"
 	"sort"
 
 	"github.com/openshift/cluster-logging-operator/test/helpers/types"
@@ -28,7 +29,7 @@ var _ = Describe("[Functional][Outputs][Multiple] tests", func() {
 
 	Context("LOG-1575", func() {
 		It("should fix sending JSON logs to syslog and elasticsearch without error", func() {
-			pipelineBuilder := functional.NewClusterLogForwarderBuilder(framework.Forwarder).
+			pipelineBuilder := testruntime.NewClusterLogForwarderBuilder(framework.Forwarder).
 				FromInput(logging.InputNameApplication)
 			pipelineBuilder.ToElasticSearchOutput()
 			pipelineBuilder.ToOutputWithVisitor(func(spec *logging.OutputSpec) {
@@ -76,7 +77,7 @@ var _ = Describe("[Functional][Outputs][Multiple] tests", func() {
 
 	Context("LOG-3640", func() {
 		It("should send parsed JSON logs to different outputs when using multiple pipelines", func() {
-			builder := functional.NewClusterLogForwarderBuilder(framework.Forwarder)
+			builder := testruntime.NewClusterLogForwarderBuilder(framework.Forwarder)
 			pipelineBuilder := builder.FromInput(logging.InputNameApplication).WithParseJson().Named("one")
 			pipelineBuilder.ToOutputWithVisitor(func(spec *logging.OutputSpec) {
 				spec.URL = "http://0.0.0.0:9200"
@@ -99,7 +100,7 @@ var _ = Describe("[Functional][Outputs][Multiple] tests", func() {
 				}, "other-es")
 
 			builder.FromInput(logging.InputNameApplication).WithParseJson().Named("three").
-				ToFluentForwardOutput()
+				ToHttpOutput()
 
 			Expect(framework.Deploy()).To(BeNil())
 
@@ -115,11 +116,11 @@ var _ = Describe("[Functional][Outputs][Multiple] tests", func() {
 			Expect(err).To(BeNil(), "Expected no errors reading the logs")
 			Expect(esLogs).To(HaveLen(1))
 
-			fluentlogs, err := framework.ReadLogsFrom(logging.OutputTypeFluentdForward, logging.InputNameApplication)
+			httpLogs, err := framework.ReadLogsFrom(logging.OutputTypeHttp, logging.InputNameApplication)
 			Expect(err).To(BeNil(), "Expected no errors reading the logs")
-			Expect(fluentlogs).To(HaveLen(1))
+			Expect(httpLogs).To(HaveLen(1))
 
-			for output, raw := range map[string][]string{"other-es": otherLogs, "elasticsearch": esLogs, "flluentforward": fluentlogs} {
+			for output, raw := range map[string][]string{"other-es": otherLogs, "elasticsearch": esLogs, "http": httpLogs} {
 				// Parse log line
 				var logs []types.ApplicationLog
 				err = types.StrictlyParseLogsFromSlice(raw, &logs)

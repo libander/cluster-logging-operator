@@ -2,13 +2,15 @@ package loki
 
 import (
 	"fmt"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
-	logging "github.com/openshift/cluster-logging-operator/api/logging/v1"
+	obs "github.com/openshift/cluster-logging-operator/api/observability/v1"
 )
 
 var _ = Describe("Loki generator helpers", func() {
+	defer GinkgoRecover()
 
 	DescribeTable("#formatLokiLabelValue should correctly format", func(label, exp string) {
 		Expect(fmt.Sprintf("{{%s}}", exp)).To(Equal(formatLokiLabelValue(label)))
@@ -21,7 +23,7 @@ var _ = Describe("Loki generator helpers", func() {
 	)
 
 	DescribeTable("#lokiLabels should correctly format labels", func(label, expKey, expValue string) {
-		lo := &logging.Loki{
+		lo := &obs.Loki{
 			LabelKeys: []string{label},
 		}
 		labels := lokiLabels(lo)

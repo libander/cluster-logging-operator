@@ -2,18 +2,14 @@ package splunk
 
 import (
 	"fmt"
-	"strings"
-
-	"github.com/openshift/cluster-logging-operator/internal/constants"
+	obs "github.com/openshift/cluster-logging-operator/api/observability/v1"
 	. "github.com/openshift/cluster-logging-operator/internal/generator/framework"
-	"github.com/openshift/cluster-logging-operator/internal/generator/vector/normalize"
 	"github.com/openshift/cluster-logging-operator/internal/generator/vector/output/common"
+	"github.com/openshift/cluster-logging-operator/internal/generator/vector/output/common/tls"
 
-	logging "github.com/openshift/cluster-logging-operator/api/logging/v1"
 	genhelper "github.com/openshift/cluster-logging-operator/internal/generator/helpers"
 	. "github.com/openshift/cluster-logging-operator/internal/generator/vector/elements"
 	vectorhelpers "github.com/openshift/cluster-logging-operator/internal/generator/vector/helpers"
-	corev1 "k8s.io/api/core/v1"
 )
 
 var (
@@ -25,7 +21,7 @@ type Splunk struct {
 	Inputs       string
 	Endpoint     string
 	DefaultToken string
-	Index        Element
+	Index        string
 	common.RootMixin
 }
 
@@ -41,7 +37,7 @@ inputs = {{.Inputs}}
 endpoint = "{{.Endpoint}}"
 {{.Compression}}
 default_token = "{{.DefaultToken}}"
-{{kv .Index -}}
+index = "{{.Index}}"
 timestamp_key = "@timestamp"
 {{end}}`
 }
@@ -68,115 +64,49 @@ func (s *Splunk) SetCompression(algo string) {
 	s.Compression.Value = algo
 }
 
-func New(id string, o logging.OutputSpec, inputs []string, secret *corev1.Secret, strategy common.ConfigStrategy, op Options) []Element {
+func New(id string, o obs.OutputSpec, inputs []string, secrets vectorhelpers.Secrets, strategy common.ConfigStrategy, op Options) []Element {
 	if genhelper.IsDebugOutput(op) {
 		return []Element{
 			Debug(id, vectorhelpers.MakeInputs(inputs...)),
 		}
 	}
 
-	componentID := vectorhelpers.MakeID(id, "add_splunk_index")
 	timestampID := vectorhelpers.MakeID(id, "timestamp")
-	dedottedID := vectorhelpers.MakeID(id, "dedot")
 
-	dedotInputs := inputs
-	indexRemapElement := SetSplunkIndexRemap(o.Splunk, componentID, inputs)
-	if len(indexRemapElement) != 0 {
-		dedotInputs = []string{componentID}
-	}
-	sink := Output(id, o, []string{timestampID}, secret, op)
+	splunkSink := sink(id, o, []string{timestampID}, secrets, op)
 	if strategy != nil {
-		strategy.VisitSink(sink)
-	}
-	return MergeElements(
-		indexRemapElement,
-		[]Element{
-			normalize.DedotLabels(dedottedID, dedotInputs),
-			FixTimestampFormat(timestampID, []string{dedottedID}),
-			sink,
-			Encoding(id, o),
-			common.NewAcknowledgments(id, strategy),
-			common.NewBatch(id, strategy),
-			common.NewBuffer(id, strategy),
-			common.NewRequest(id, strategy),
-		},
-		common.TLS(id, o, secret, op),
-	)
-}
-
-func Output(id string, o logging.OutputSpec, inputs []string, secret *corev1.Secret, op Options) *Splunk {
-	return &Splunk{
-		ComponentID:  id,
-		Inputs:       vectorhelpers.MakeInputs(inputs...),
-		Endpoint:     o.URL,
-		DefaultToken: common.GetFromSecret(secret, constants.SplunkHECTokenKey),
-		Index:        AddSplunkIndexToSink(o.Splunk),
-		RootMixin:    common.NewRootMixin("none"),
-	}
-}
-
-func hasCustomIndex(s *logging.Splunk) bool {
-	return s != nil && (s.IndexKey != "" || s.IndexName != "")
-}
-
-func SetSplunkIndexRemap(s *logging.Splunk, componentID string, inputs []string) []Element {
-	var vrl string
-	var index string
-
-	if !hasCustomIndex(s) {
-		return []Element{}
-	}
-
-	switch {
-	// If key is not found, a write index of "" writes to default index defined in Splunk
-	case s.IndexKey != "":
-		vrl = `
-val = .%s
-if !is_null(val) {
-	.write_index = val
-} else {
-	.write_index = ""
-}
-`
-		index = s.IndexKey
-
-	case s.IndexName != "":
-		vrl = `
-.write_index = "%s"
-`
-		index = s.IndexName
+		strategy.VisitSink(splunkSink)
 	}
 	return []Element{
-		Remap{
-			Desc:        "Set Splunk Index",
-			ComponentID: componentID,
-			Inputs:      vectorhelpers.MakeInputs(inputs...),
-			VRL:         strings.TrimSpace(fmt.Sprintf(vrl, index)),
-		},
+		FixTimestampFormat(timestampID, inputs),
+		splunkSink,
+		Encoding(id, o),
+		common.NewAcknowledgments(id, strategy),
+		common.NewBatch(id, strategy),
+		common.NewBuffer(id, strategy),
+		common.NewRequest(id, strategy),
+		tls.New(id, o.TLS, secrets, op),
 	}
 }
 
-func AddSplunkIndexToSink(s *logging.Splunk) Element {
-	if !hasCustomIndex(s) {
-		return Nil
+func sink(id string, o obs.OutputSpec, inputs []string, secrets vectorhelpers.Secrets, op Options) *Splunk {
+	s := &Splunk{
+		ComponentID: id,
+		Inputs:      vectorhelpers.MakeInputs(inputs...),
+		Endpoint:    o.Splunk.URL,
+		Index:       o.Splunk.Index,
+		RootMixin:   common.NewRootMixin("none"),
 	}
-
-	return KV("index", fmt.Sprintf("%q", "{{ write_index }}"))
+	if o.Splunk.Authentication != nil {
+		s.DefaultToken = secrets.AsString(o.Splunk.Authentication.Token)
+	}
+	return s
 }
 
-func AddSplunkEncodeExceptFields(s *logging.Splunk) Element {
-	if !hasCustomIndex(s) {
-		return Nil
-	}
-
-	return KV("except_fields", "[\"write_index\"]")
-}
-
-func Encoding(id string, o logging.OutputSpec) Element {
+func Encoding(id string, o obs.OutputSpec) Element {
 	return SplunkEncoding{
-		ComponentID:  id,
-		Codec:        splunkEncodingJson,
-		ExceptFields: AddSplunkEncodeExceptFields(o.Splunk),
+		ComponentID: id,
+		Codec:       splunkEncodingJson,
 	}
 }
 

@@ -2,6 +2,8 @@ package helpers
 
 import (
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -23,6 +25,7 @@ func MakeInputs(in ...string) string {
 			out[i] = fmt.Sprintf("%q", o)
 		}
 	}
+	sort.Strings(out)
 	return fmt.Sprintf("[%s]", strings.Join(out, ","))
 }
 
@@ -51,4 +54,12 @@ func ListenOnAllLocalInterfacesAddress() string {
 	}
 	listenAllOnce.Do(f)
 	return listenAllAddress
+}
+
+func AuthPath(name string, file string) string {
+	return fmt.Sprintf("%q", filepath.Join("/var/run/ocp-collector/auth", name, file))
+}
+
+func SecretPath(secretName string, file string) string {
+	return fmt.Sprintf("%q", filepath.Join("/var/run/ocp-collector/secrets", secretName, file))
 }

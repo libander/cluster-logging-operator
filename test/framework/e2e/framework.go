@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	commonlog "github.com/openshift/cluster-logging-operator/test/framework/common/log"
+	"github.com/openshift/cluster-logging-operator/test/framework/e2e/receivers/elasticsearch"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -147,6 +148,24 @@ func (tc *E2ETestFramework) DeployLogGeneratorWithNamespaceName(namespace, name 
 	return client.Get().WaitFor(pod, client.PodRunning)
 }
 
+// DeploySocat will deploy pod with socat software
+func (tc *E2ETestFramework) DeploySocat(namespace, name, forwarderName string, options LogGeneratorOptions) error {
+	pod := runtime.NewSocatPod(namespace, name, forwarderName, options.Labels)
+	if err := tc.WaitForResourceCondition(namespace, "serviceaccount", "default", "", "{}", 10, func(string) (bool, error) { return true, nil }); err != nil {
+		return err
+	}
+	opts := metav1.CreateOptions{}
+	pod, err := tc.KubeClient.CoreV1().Pods(namespace).Create(context.TODO(), pod, opts)
+	if err != nil {
+		return err
+	}
+	tc.AddCleanup(func() error {
+		opts := metav1.DeleteOptions{}
+		return tc.KubeClient.CoreV1().Pods(namespace).Delete(context.TODO(), pod.Name, opts)
+	})
+	return client.Get().WaitFor(pod, client.PodRunning)
+}
+
 func (tc *E2ETestFramework) DeployLogGeneratorWithNamespace(namespace, name string, options LogGeneratorOptions) error {
 	return tc.DeployLogGeneratorWithNamespaceName(namespace, name, options)
 }
@@ -256,16 +275,47 @@ func (tc *E2ETestFramework) CreateTestNamespaceWithPrefix(prefix string) string 
 	}
 	return name
 }
+
+func (tc *E2ETestFramework) DeployComponents(componentTypes ...helpers.LogComponentType) error {
+	for _, comp := range componentTypes {
+		switch comp {
+		case helpers.ComponentTypeReceiverElasticsearchRHManaged:
+			receiver := elasticsearch.NewManagedElasticsearch(tc)
+			if err := receiver.Deploy(); err != nil {
+				return err
+			}
+			tc.LogStores[elasticsearch.ManagedLogStore] = receiver
+		case helpers.ComponentTypeCollectorVector:
+			clf := runtime.NewClusterLogForwarder()
+			clf.Name = "mycollector"
+			runtime.NewClusterLogForwarderBuilder(clf).
+				FromInput(logging.InputNameApplication).
+				AndInput(logging.InputNameInfrastructure).
+				AndInput(logging.InputNameAudit).
+				ToOutputWithVisitor(func(spec *logging.OutputSpec) {
+					spec.Type = logging.OutputTypeElasticsearch
+					spec.URL = "https://elasticsearch:9200"
+					spec.Secret = &logging.OutputSecretSpec{
+						Name: clf.Name,
+					}
+				}, elasticsearch.ManagedLogStore)
+			if err := tc.CreateServiceAccountAndAuthorizeFor(clf); err != nil {
+				return err
+			}
+			if err := tc.CreateClusterLogForwarder(clf); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (tc *E2ETestFramework) Client() *kubernetes.Clientset {
+	return tc.KubeClient
+}
+
 func (tc *E2ETestFramework) SetupClusterLogging(componentTypes ...helpers.LogComponentType) (err error) {
-	tc.ClusterLogging = helpers.NewClusterLogging(componentTypes...)
-	tc.LogStores["elasticsearch"] = &ElasticLogStore{
-		Framework: tc,
-	}
-	err = tc.CreateClusterLogging(tc.ClusterLogging)
-	if err == nil {
-		clolog.V(1).Info("Created clusterlogging", "object", tc.ClusterLogging)
-	}
-	return err
+	return tc.DeployComponents()
 }
 
 func (tc *E2ETestFramework) CreateClusterLogging(clusterlogging *cl.ClusterLogging) error {
@@ -511,8 +561,8 @@ func NewKubeClient() (*kubernetes.Clientset, *rest.Config) {
 	return clientset, config
 }
 
-func (tc *E2ETestFramework) PodExec(namespace, name, container string, command []string) (string, error) {
-	return oc.Exec().WithNamespace(namespace).Pod(name).Container(container).WithCmd(command[0], command[1:]...).Run()
+func (tc *E2ETestFramework) PodExec(namespace, pod, container string, command []string) (string, error) {
+	return oc.Exec().WithNamespace(namespace).Pod(pod).Container(container).WithCmd(command[0], command[1:]...).Run()
 }
 
 func (tc *E2ETestFramework) CreatePipelineSecret(logStoreName, secretName string, otherData map[string][]byte) (*corev1.Secret, error) {
